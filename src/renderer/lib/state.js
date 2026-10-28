@@ -3,6 +3,7 @@ const path = require('path')
 const { EventEmitter } = require('events')
 
 const config = require('../../config')
+const defaultAnnounceList = require('create-torrent').announceList.map((arr) => arr[0])
 
 const SAVE_DEBOUNCE_INTERVAL = 1000
 
@@ -12,13 +13,13 @@ const State = module.exports = Object.assign(new EventEmitter(), {
   getDefaultPlayState,
   load,
   // state.save() calls are rate-limited. Use state.saveImmediate() to skip limit.
-  save: function () {
+  save (...args) {
     // Perf optimization: Lazy-require debounce (and it's dependencies)
     const debounce = require('debounce')
     // After first State.save() invokation, future calls go straight to the
     // debounced function
     State.save = debounce(saveImmediate, SAVE_DEBOUNCE_INTERVAL)
-    State.save(...arguments)
+    State.save(...args)
   },
   saveImmediate
 })
@@ -79,6 +80,7 @@ function getDefaultState () {
     getPlayingTorrentSummary,
     getPlayingFileSummary,
     getExternalPlayerName,
+    getGlobalTrackers,
     shouldHidePlayerControls
   }
 }
@@ -129,7 +131,8 @@ function setupStateSaved () {
       soundNotifications: true,
       autoAddTorrents: false,
       torrentsFolderPath: '',
-      highestPlaybackPriority: true
+      highestPlaybackPriority: true,
+      globalTrackers: defaultAnnounceList
     },
     torrents: config.DEFAULT_TORRENTS.map(createTorrentObject),
     torrentsToResume: [],
@@ -198,8 +201,15 @@ function shouldHidePlayerControls () {
     new Date().getTime() - this.playing.mouseStationarySince > 2000 &&
     !this.playing.mouseInControls &&
     !this.playing.isPaused &&
-    this.playing.location === 'local' &&
-    this.playing.playbackRate === 1
+    this.playing.location === 'local'
+}
+
+function getGlobalTrackers () {
+  const trackers = this.saved.prefs.globalTrackers
+  if (!trackers) {
+    return defaultAnnounceList
+  }
+  return trackers
 }
 
 async function load (cb) {
@@ -242,7 +252,7 @@ async function saveImmediate (state, cb) {
   // reading the torrent file or file(s) to seed & don't have an infohash
   copy.torrents = copy.torrents
     .filter((x) => x.infoHash)
-    .map(function (x) {
+    .map(x => {
       const torrent = {}
       for (const key in x) {
         if (key === 'progress' || key === 'torrentKey') {
